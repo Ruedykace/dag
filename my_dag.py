@@ -1,9 +1,9 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 import psycopg2
-import dayjs
+import pytz
 
 #define the access to the database
 auth_db = psycopg2.connect(
@@ -21,9 +21,13 @@ data_db = psycopg2.connect(
     port="30100"
 )
 
+def start_of_week(date):
+    # Assuming the week starts on Monday
+    start = date - timedelta(days=date.weekday())
+    return start
 
 def cron_location():
-    date = datetime.now()
+    date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
     auth_cursor = auth_db.cursor()
 
@@ -91,7 +95,7 @@ def cron_location():
     auth_db.close()
 
 def cron_receive():
-    date = datetime.now()
+    date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
     auth_cursor = auth_db.cursor()
 
@@ -106,7 +110,7 @@ def cron_receive():
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('receive',))
         last_entry = data_cursor.fetchone()
-        last_entry_date = datetime(2023, 1, 1)
+        last_entry_date = datetime(2023, 1, 1, tzinfo=pytz.utc)
 
         if not last_entry:
             print('no register')
@@ -147,7 +151,8 @@ def cron_receive():
                     print('receiveData:', len(receive_data['events']))
 
                     for event in receive_data['events']:
-                        first_day_of_week = dayjs(event['event_time']).start_of('week').isoformat()
+                        event_time = datetime.fromisoformat(event['event_time']).replace(tzinfo=pytz.utc)
+                        first_day_of_week = start_of_week(event_time).isoformat()
                         avg_items = len(event['child_epcs'])
                         last_data = event['event_time']
 
@@ -182,7 +187,7 @@ def cron_receive():
     auth_db.close()
 
 def cron_checkout():
-    date = datetime.now()
+    date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
 
     auth_cursor = auth_db.cursor()
@@ -198,7 +203,7 @@ def cron_checkout():
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('checkout',))
         last_entry = data_cursor.fetchone()
-        last_entry_date = datetime(2023, 6, 6)
+        last_entry_date = datetime(2023, 6, 6, tzinfo=pytz.utc)
 
         if not last_entry:
             print('no register')
@@ -239,7 +244,8 @@ def cron_checkout():
                     print('receiveData:', len(receive_data['events']))
 
                     for event in receive_data['events']:
-                        first_day_of_week = dayjs(event['event_time']).start_of('week').isoformat()
+                        event_time = datetime.fromisoformat(event['event_time']).replace(tzinfo=pytz.utc)
+                        first_day_of_week = start_of_week(event_time).isoformat()
                         avg_items = len(event['epc_list'])
                         last_data = event['event_time']
                         store = event['biz_location']
@@ -276,7 +282,7 @@ def cron_checkout():
     auth_db.close()
 
 def cron_count():
-    date = datetime.now()
+    date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
 
     auth_cursor = auth_db.cursor()
@@ -292,7 +298,7 @@ def cron_count():
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('count',))
         last_entry = data_cursor.fetchone()
-        last_entry_date = datetime(2000, 1, 1)
+        last_entry_date = datetime(2000, 1, 1, tzinfo=pytz.utc)
 
         if not last_entry:
             print('no register')
@@ -350,7 +356,7 @@ def cron_count():
     auth_db.close()
 
 def cron_osa():
-    date = datetime.now()
+    date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
 
     auth_cursor = auth_db.cursor()
@@ -366,7 +372,7 @@ def cron_osa():
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('osa',))
         last_entry = data_cursor.fetchone()
-        last_entry_date = datetime(2023, 6, 6)
+        last_entry_date = datetime(2023, 6, 6, tzinfo=pytz.utc)
 
         if not last_entry:
             print('no register')
@@ -381,8 +387,8 @@ def cron_osa():
 
         for location in locations:
             location_id = location[0]
-            from_week = dayjs(last_entry_date).format('YYYY-ww')
-            to_week = dayjs(date).format('YYYY-ww')
+            from_week = last_entry_date.strftime('%Y-%U')
+            to_week = date.strftime('%Y-%U')
 
             try:
                 response = requests.get(
@@ -406,7 +412,7 @@ def cron_osa():
                         week = data['week_info']['week']
                         year = data['week_info']['year']
                         osa = data['on_shelf_availability_kpi_value']['on_shelf_availability']
-                        first_day_of_week = dayjs().week(week).year(year).start_of('week').isoformat()
+                        first_day_of_week = datetime.strptime(f'{year}-{week}-1', "%Y-%W-%w").isoformat()
 
                         query = f"""
                         INSERT INTO "{org_id}_osa" (store_date, wks_start_date, week_number, year, store, osa)
@@ -432,7 +438,7 @@ def cron_osa():
     auth_db.close()
 
 def cron_summary():
-    date = datetime.now()
+    date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
 
     auth_cursor = auth_db.cursor()
@@ -448,7 +454,7 @@ def cron_summary():
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('summary',))
         last_entry = data_cursor.fetchone()
-        last_entry_date = datetime(2000, 1, 1)
+        last_entry_date = datetime(2000, 1, 1, tzinfo=pytz.utc)
 
         if not last_entry:
             print('no register')
