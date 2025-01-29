@@ -545,7 +545,7 @@ def cron_summary():
     auth_cursor.close()
 
 with DAG(
-    dag_id='etl_dag',
+    dag_id='etl_value_dag',
     schedule_interval='@daily',
     start_date=datetime(2025, 1, 1),
     catchup=False
