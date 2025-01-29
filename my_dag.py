@@ -1,25 +1,48 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.hooks.base import BaseHook
 from datetime import datetime, timedelta
 import requests
 import psycopg2
 import pytz
 
-#define the access to the database
-auth_db = psycopg2.connect(
-    dbname="auth",
-    user="postgres",
-    password="@Nedap1929",
-    host="194.164.175.63",
-    port="30100"
-)
-data_db = psycopg2.connect(
-    dbname="data",
-    user="postgres",
-    password="@Nedap1929",
-    host="194.164.175.63",
-    port="30100"
-)
+def get_auth_db_connection():
+    # Retrieve the connection object for auth
+    conn = BaseHook.get_connection("postgres_value_auth")
+    
+    # Use the connection details to connect to the auth database
+    auth_db = psycopg2.connect(
+        dbname=conn.database,
+        user=conn.login,
+        password=conn.password,
+        host=conn.host,
+        port=conn.port
+    )
+    print('dbname:', conn.database)
+    print('user:', conn.login)
+    print('password:', conn.password[-3:])
+    print('host:', conn.host)
+    print('port:', conn.port)
+    return auth_db
+
+def get_data_db_connection():
+    # Retrieve the connection object for data
+    conn = BaseHook.get_connection("postgres_value_data")
+    
+    # Use the connection details to connect to the data database
+    data_db = psycopg2.connect(
+        dbname=conn.database,
+        user=conn.login,
+        password=conn.password,
+        host=conn.host,
+        port=conn.port
+    )
+    print('dbname:', conn.database)
+    print('user:', conn.login)
+    print('password:', conn.password[-3:])
+    print('host:', conn.host)
+    print('port:', conn.port)
+    return data_db
 
 def start_of_week(date):
     # Assuming the week starts on Monday
@@ -28,16 +51,22 @@ def start_of_week(date):
 
 def cron_location():
     date = datetime.now(pytz.utc)
-    print('Start receiving data at', date)
+    print('Starting cron_location task at', date)
+
+    # Use the connection function to get the auth_db connection
+    auth_db = get_auth_db_connection()
     auth_cursor = auth_db.cursor()
+    print('connection to auth_db successful')
 
     auth_cursor.execute('SELECT * FROM scopes')
     organizations = auth_cursor.fetchall()
-
+    print('fetching organizations successful')
     for org in organizations:
         org_name, org_id, org_token = org
         print(org_name, org_id)
 
+        # Use the connection function to get the data_db connection
+        data_db = get_data_db_connection()
         data_cursor = data_db.cursor()
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('location',))
@@ -97,7 +126,7 @@ def cron_location():
 def cron_receive():
     date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
-    auth_cursor = auth_db.cursor()
+    auth_cursor = get_auth_db_connection().cursor()
 
     auth_cursor.execute('SELECT * FROM scopes')
     organizations = auth_cursor.fetchall()
@@ -106,7 +135,8 @@ def cron_receive():
         org_name, org_id, org_token = org
         print(org_name, org_id)
 
-        data_cursor = data_db.cursor()
+        data_conn = get_data_db_connection()
+        data_cursor = data_conn.cursor()
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('receive',))
         last_entry = data_cursor.fetchone()
@@ -179,18 +209,17 @@ def cron_receive():
         except requests.RequestException as e:
             print('Error receiving data:', e)
 
-        data_db.commit()  
+        data_conn.commit()  
         data_cursor.close()
-        data_db.close()
+        data_conn.close()
 
     auth_cursor.close()
-    auth_db.close()
 
 def cron_checkout():
     date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
 
-    auth_cursor = auth_db.cursor()
+    auth_cursor = get_auth_db_connection().cursor()
 
     auth_cursor.execute('SELECT * FROM scopes')
     organizations = auth_cursor.fetchall()
@@ -199,7 +228,8 @@ def cron_checkout():
         org_name, org_id, org_token = org
         print(org_name, org_id)
 
-        data_cursor = data_db.cursor()
+        data_conn = get_data_db_connection()
+        data_cursor = data_conn.cursor()
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('checkout',))
         last_entry = data_cursor.fetchone()
@@ -274,18 +304,17 @@ def cron_checkout():
         except requests.RequestException as e:
             print('Error receiving data:', e)
 
-        data_db.commit()  
+        data_conn.commit()  
         data_cursor.close()
-        data_db.close()
+        data_conn.close()
 
     auth_cursor.close()
-    auth_db.close()
 
 def cron_count():
     date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
 
-    auth_cursor = auth_db.cursor()
+    auth_cursor = get_auth_db_connection().cursor()
 
     auth_cursor.execute('SELECT * FROM scopes')
     organizations = auth_cursor.fetchall()
@@ -294,7 +323,8 @@ def cron_count():
         org_name, org_id, org_token = org
         print(org_name, org_id)
 
-        data_cursor = data_db.cursor()
+        data_conn = get_data_db_connection()
+        data_cursor = data_conn.cursor()
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('count',))
         last_entry = data_cursor.fetchone()
@@ -348,18 +378,17 @@ def cron_count():
         """
         data_cursor.execute(update_query, (date, date))
 
-        data_db.commit()
+        data_conn.commit()
         data_cursor.close()
-        data_db.close()
+        data_conn.close()
 
     auth_cursor.close()
-    auth_db.close()
 
 def cron_osa():
     date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
 
-    auth_cursor = auth_db.cursor()
+    auth_cursor = get_auth_db_connection().cursor()
 
     auth_cursor.execute('SELECT * FROM scopes')
     organizations = auth_cursor.fetchall()
@@ -368,7 +397,8 @@ def cron_osa():
         org_name, org_id, org_token = org
         print(org_name, org_id)
 
-        data_cursor = data_db.cursor()
+        data_conn = get_data_db_connection()
+        data_cursor = data_conn.cursor()
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('osa',))
         last_entry = data_cursor.fetchone()
@@ -430,18 +460,17 @@ def cron_osa():
         """
         data_cursor.execute(update_query, (last_entry_date, date))
 
-        data_db.commit()
+        data_conn.commit()
         data_cursor.close()
-        data_db.close()
+        data_conn.close()
 
     auth_cursor.close()
-    auth_db.close()
 
 def cron_summary():
     date = datetime.now(pytz.utc)
     print('Start receiving data at', date)
 
-    auth_cursor = auth_db.cursor()
+    auth_cursor = get_auth_db_connection().cursor()
 
     auth_cursor.execute('SELECT * FROM scopes')
     organizations = auth_cursor.fetchall()
@@ -450,7 +479,8 @@ def cron_summary():
         org_name, org_id, org_token = org
         print(org_name, org_id)
 
-        data_cursor = data_db.cursor()
+        data_conn = get_data_db_connection()
+        data_cursor = data_conn.cursor()
 
         data_cursor.execute(f'SELECT last_entry FROM "{org_id}_cron" WHERE cron_name = %s ORDER BY last_entry DESC LIMIT 1', ('summary',))
         last_entry = data_cursor.fetchone()
@@ -508,12 +538,11 @@ def cron_summary():
         """
         data_cursor.execute(update_query, (last_entry_date, date))
 
-        data_db.commit()
+        data_conn.commit()
         data_cursor.close()
-        data_db.close()
+        data_conn.close()
 
     auth_cursor.close()
-    auth_db.close()
 
 with DAG(
     dag_id='etl_dag',
@@ -521,7 +550,6 @@ with DAG(
     start_date=datetime(2025, 1, 1),
     catchup=False
 ) as dag:
-
     cron_location_task = PythonOperator(
         task_id='cron_location',
         python_callable=cron_location
@@ -552,6 +580,6 @@ with DAG(
         python_callable=cron_summary
     )
 
-    # Define task dependencies without etl_task
-    [cron_location_task, cron_receive_task, cron_checkout_task, cron_count_task, cron_osa_task, cron_summary_task]
+    # Define task dependencies to run in series
+    cron_location_task >> cron_receive_task >> cron_checkout_task >> cron_count_task >> cron_osa_task >> cron_summary_task
     
